@@ -27,6 +27,9 @@
 	let mentee_arrival_time;
 	let date;
 
+	let prevId = null;
+	let nextId = null;
+
 	// Comment fields
 	let time_comment_music = '';
 	let time_comment_gigi = '';
@@ -173,10 +176,82 @@
 		return time;
 	}
 
+	async function fetchRangeIds(startDate, endDate) {
+		const pad = (n) => String(n).padStart(2, '0');
+		const sy = startDate.getFullYear();
+		const sm = pad(startDate.getMonth() + 1);
+		const sd = pad(startDate.getDate());
+		const ey = endDate.getFullYear();
+		const em = pad(endDate.getMonth() + 1);
+		const ed = pad(endDate.getDate());
+
+		const response = await fetch(`/api/time/${sy}/${sm}/${sd}/${ey}/${em}/${ed}`);
+		if (!response.ok) return [];
+		const rangeData = await response.json();
+
+		const allTimeIds = [];
+		for (let dayIdx = 0; dayIdx < rangeData.length; dayIdx++) {
+			const daySlots = rangeData[dayIdx];
+			if (!daySlots) continue;
+			for (let slotIdx = 0; slotIdx < daySlots.length; slotIdx++) {
+				if (daySlots[slotIdx] != null) {
+					allTimeIds.push(daySlots[slotIdx]);
+				}
+			}
+		}
+		return allTimeIds;
+	}
+
+	async function loadAdjacentTimeIds(currentId) {
+		prevId = null;
+		nextId = null;
+
+		if (!date) return;
+
+		const currentDate = new Date(date + 'T00:00:00');
+		const numId = Number(currentId);
+		const ranges = [14, 90, 365 * 10];
+
+		try {
+			for (const days of ranges) {
+				const startDate = new Date(currentDate);
+				startDate.setDate(startDate.getDate() - days);
+				const endDate = new Date(currentDate);
+				endDate.setDate(endDate.getDate() + days);
+
+				const allTimeIds = await fetchRangeIds(startDate, endDate);
+				const currentIndex = allTimeIds.indexOf(numId);
+				if (currentIndex === -1) continue;
+
+				if (currentIndex > 0) {
+					prevId = allTimeIds[currentIndex - 1];
+				}
+				if (currentIndex < allTimeIds.length - 1) {
+					nextId = allTimeIds[currentIndex + 1];
+				}
+
+				if (prevId !== null && nextId !== null) break;
+			}
+		} catch (error) {
+			console.error('Failed to load adjacent times', error);
+		}
+	}
+
+	async function reloadAll(currentId) {
+		visible = false;
+		editing = false;
+		display = false;
+		await loadTimeInfo(currentId);
+		await loadAdjacentTimeIds(currentId);
+	}
+
 	onMount(() => {
 		fetchUsers();
-		loadTimeInfo(id);
 	});
+
+	$: if (id) {
+		reloadAll(id);
+	}
 
 	async function handleSubmit(event) {
 		event.preventDefault();
@@ -378,7 +453,25 @@
 			<button class="time_edit button" on:click={edit_toggle}> 타임 정보 수정 </button>
 			<button class="time_edit button" on:click={display_toggle}> 판서 화면 수정 </button>
 		</div>
-		<div class="timeinfo">{timeDate}<br />{timeUser}</div>
+		<div class="timeinfo-nav">
+			<button
+				class="nav-button"
+				on:click={() => goto(`/time_manage/${prevId}`)}
+				disabled={!prevId}
+				aria-label="이전 타임"
+			>
+				&#9664;
+			</button>
+			<div class="timeinfo">{timeDate}<br />{timeUser}</div>
+			<button
+				class="nav-button"
+				on:click={() => goto(`/time_manage/${nextId}`)}
+				disabled={!nextId}
+				aria-label="다음 타임"
+			>
+				&#9654;
+			</button>
+		</div>
 		<div class="buttons">
 			<button class="insta button" on:click={toggle}>
 				<img src={instalogo} alt="insta" />
@@ -791,8 +884,35 @@
 		border-width: 1px;
 		box-shadow: 0px 4px 5px 0px rgba(0, 0, 0, 0.25);
 	}
+	.timeinfo-nav {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 12px;
+	}
+	.nav-button {
+		background: var(--secondary-secondary-200);
+		border: 1px solid var(--gray-gray-400);
+		border-radius: 4px;
+		color: var(--gray-gray-950);
+		font-size: 18px;
+		width: 36px;
+		height: 36px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0px 2px 3px 0px rgba(0, 0, 0, 0.15);
+	}
+	.nav-button:hover:not(:disabled) {
+		background: var(--primary-primary-700);
+		color: var(--gray-gray-50);
+	}
+	.nav-button:disabled {
+		opacity: 0.3;
+		cursor: default;
+	}
 	.timeinfo {
-		margin-left: 120px;
 		color: var(--gray-gray-950, #1a1a1a);
 		text-align: center;
 		font-family: var(--medium-font-family, 'NotoSansKr-Medium', sans-serif);
